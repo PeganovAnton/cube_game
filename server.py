@@ -202,7 +202,60 @@ def recv_data(conn, addr):
 
 
 class PlayerScenario:
-    pass  # TODO
+    def __init__(self, game, player_addr):
+        self.game = game
+        self.player_addr = player_addr
+
+        self.player_states = {
+            'waiting_for_init': {
+                "act": {
+                    "game_method": self.game.init_player,
+                    "change_state": self.change_state_to_grab_move,
+                },
+                'process_event': {
+                    "game_method": self.game.warn_events_before_init,
+                    "change_state": None
+                }
+            },
+            'grab_move': {
+                "act": {
+                    "game_method": None,
+                    "change_state": None
+                },
+                "event": {
+                    "game_method": self.game.process_event,
+                    "change_state": None
+                }
+            }
+        }
+
+        self.current_state = "awaiting_init"
+
+    def act(self):
+        act_description = self.player_states[self.current_state]['act']
+        game_method = act_description['game_method']
+        if game_method is None:
+            result = None
+        else:
+            result = game_method(self.player_addr)
+        change_state_method = act_description['change_state']
+        if change_state_method is not None:
+            change_state_method(result)
+
+    def process_event(self, addr, event):
+        assert addr == self.player_addr
+        process_event_description = self.player_states[self.current_state]
+        game_method = process_event_description['game_method']
+        if game_method is None:
+            result = None
+        else:
+            result = game_method(addr, event)
+        change_state_method = process_event_description['change_state']
+        if change_state_method is not None:
+            change_state_method(result)
+
+    def change_state_to_grab_move(self, game_method_result):
+        self.current_state = game_method_result
 
 
 class CubeServer:
@@ -540,8 +593,25 @@ class CubeGameServer(tk.Tk):
                         msg['msg']
                     )
                 elif msg['type'] == 'event':
-                    self.process_event(addr, msg['event'])
-                    self.main_frame.process_event(addr, msg['event'])
+                    if addr not in self.players_guidance_jobs:
+                        warning_msg = "Сообщение с описанием события пришло " \
+                            "до того, как сервер начал направлять игрока. " \
+                            "Это событие будет проигнорировано.\n" \
+                            "event = {}".format(msg['event'])
+                        warnings.warn(warning_msg)
+                        send_data(
+                            self.conns_to_clients[addr],
+                            {
+                                'type': 'error_msg',
+                                'error_class': 'ValueError',
+                                'addr': addr,
+                                'msg': warning_msg,
+                                'event': msg['event'],
+                            }
+                        )
+                    else:
+                        self.players_scenarios[addr].process_event(
+                            addr, msg['event'])
                 else:
                     warnings.warn(
                         "Message of unknown type {} from client {}.".format(
@@ -568,15 +638,28 @@ class CubeGameServer(tk.Tk):
                 assert addr in self.players_scenarios, "Если сервер " \
                     "направляет игрока, для этого игрока должен быть сценарий"
             else:
-                self.players_scenarios[addr] = PlayerScenario()
+                self.players_scenarios[addr] = PlayerScenario(self, addr)
                 self.guide_player(addr)
         self.after(DT, self.launch_players_guidance)
 
     def guide_player(self, addr):
-        pass  # TODO
+        self.players_scenarios[addr].act()
+        self.after(DT, self.guide_player, addr)
 
     def process_event(self, addr, event):
-        pass  # TODO
+        self.main_frame.process_event(addr, event)
+
+    def init_player(self, addr):
+        cubes = self.main_frame.cube_canvas.cubes
+        for cube in cubes:
+            msg = {
+                "type": 'add_cube',
+                "id": cube.id,
+                "x": cube.x,
+                "y": cube.y,
+                "size": cube.size
+            }
+            send_data(self.conns_to_clients[addr], msg)
 
 
 def main():
