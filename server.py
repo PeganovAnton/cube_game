@@ -1,7 +1,7 @@
 import argparse
 import copy
 import socket
-import tkinter as tk
+import time
 import warnings
 from random import randrange as rnd, choice
 
@@ -11,7 +11,7 @@ from communicate import send_data, recv_data, CorruptedMessageError, \
     MIN_PORT_NUMBER, MAX_PORT_NUMBER, DEFAULT_PORT_NUMBER
 
 
-DT = 30
+DT_MS = 0.001
 WINDOW_SHAPE = (800, 600)
 
 MAX_NUM_PLAYERS = 10
@@ -25,11 +25,11 @@ def get_app_args():
         "Это скрипт для запуска сервера игры 'Cube Game'. Игра позволяет "
         "схватить мышкой один из кубиков и двигать его. В игре может "
         "участвовать до {} игроков. Чтобы играть, необходимо: (1)запустить "
-        "этот скрипт, указав при этом число кубиков, (2)запустить скрипт "
-        "client.py на компьютерах каждого из игроков и передать при этом "
-        "ip сервера. ip и порт сервера печатаются при запуске сервера. Если "
-        "Вы играете на той же машине, на которой запущен сервер, то ip при "
-        "запуске клиента можно не указывать.".format(
+        "этот скрипт, (2)запустить скрипт client.py на компьютерах каждого "
+        "из игроков и передать при этом ip сервера. ip и порт сервера "
+        "печатаются при запуске сервера. Если Вы играете на той же машине, "
+        "на которой запущен сервер, то ip при запуске клиента можно не "
+        "указывать.".format(
             MAX_NUM_PLAYERS)
     )
     parser.add_argument(
@@ -112,23 +112,15 @@ class PlayerScenario:
 
 
 class CubeServer:
-    def __init__(self, cube_canvas, x, y, size, color):
+    def __init__(self, cube_canvas, id_, x, y, size, color):
         self.cube_canvas = cube_canvas
+        self.id = id_
         self.x = x
         self.y = y
         self.size = size
         self.color = color
 
         self.grabbing_point = None
-
-        self.id = self.cube_canvas.create_rectangle(
-            self.x,
-            self.y,
-            self.x + self.size,
-            self.y + self.size,
-            fill=self.color
-        )
-        self.cube_canvas.cubes[self.id] = self
 
     def is_coord_missing(self, addr, event):
         missing_coords = []
@@ -185,8 +177,6 @@ class CubeServer:
         conn = self.cube_canvas.get_root().conns_to_clients[addr]
         self.x += shift[0]
         self.y += shift[1]
-        self.cube_canvas.coords(
-            self.x, self.y, self.x + self.size, self.y + self.size)
         send_data(
             conn,
             {
@@ -223,10 +213,9 @@ class CubeServer:
         self.grabbing_point = (event['x']-self.x, event['y']-self.y)
 
 
-class CubeCanvasServer(tk.Canvas):
+class CubeCanvasServer:
     def __init__(self, master, num_cubes):
-        super().__init__(master)
-
+        self.master = master
         self.supported_incoming_event_types = \
             ['<Button-1>', '<ButtonRelease-1>', '<B1-Motion>']
         # Кубики располагаются внутри экземпляра `CubeCanvas` случайным
@@ -234,12 +223,12 @@ class CubeCanvasServer(tk.Canvas):
         # `CubeCanvas`.
         self.margin = 100
         self.cube_init_xrange = [
-            self.winfo_rootx() + self.margin,
-            self.winfo_rootx() + self.winfo_width() - self.margin
+            self.margin,
+            WINDOW_SHAPE[0] - self.margin
         ]
         self.cube_init_yrange = [
-            self.winfo_rooty() + self.margin,
-            self.winfo_rooty() + self.winfo_height() - self.margin
+            self.margin,
+            WINDOW_SHAPE[1] - self.margin
         ]
         self.cube_size_range = [15, 75]
 
@@ -252,12 +241,19 @@ class CubeCanvasServer(tk.Canvas):
 
     def get_root(self):
         root = self.master
-        while root.master is not None:
+        while hasattr(root, 'master') is not None:
             root = root.master
         return root
 
     def get_mode(self):
         return self.get_root().mode
+
+    def get_free_id(self):
+        id_ = 1
+        taken_ids = list(self.cubes.keys())
+        while id_ in taken_ids:
+            id_ += 1
+        return id_
 
     def create_cubes(self):
         for _ in range(self.num_cubes):
@@ -265,7 +261,8 @@ class CubeCanvasServer(tk.Canvas):
             y = rnd(*self.cube_init_yrange)
             size = rnd(*self.cube_size_range)
             color = choice(colors.INTENSIVE_RAINBOW)
-            CubeServer(self, x, y, size, color)
+            id_ = self.get_free_id()
+            self.cubes[id_] = CubeServer(self, id_, x, y, size, color)
 
     def is_id_address_eventtype_ok(self, addr, event):
         ok = True
@@ -357,30 +354,24 @@ class CubeCanvasServer(tk.Canvas):
             assert False
 
 
-class MainFrameServer(tk.Frame):
+class MainFrameServer:
     def __init__(self, master, num_cubes):
-        super().__init__(master)
+        self.master = master
         self.cube_canvas = CubeCanvasServer(self, num_cubes)
-        self.cube_canvas.pack(fill=tk.BOTH, expand=1)
 
     def process_event(self, addr, event):
         self.cube_canvas.process_event(addr, event)
 
 
-class CubeGameServer(tk.Tk):
+class CubeGameServer:
     def __init__(self, config):
         self.check_config(config)
-        super().__init__()
 
-        self.server_ip = config['server_ip']
         self.server_port = config['server_port']
 
         self.msg_types = ['error_msg', 'event']
 
-        self.wm_withdraw()
-
         self.main_frame = MainFrameServer(self, config['num_cubes'])
-        self.main_frame.pack(fill=tk.BOTH, expand=1)
 
         # `self.listener` -- сокет для установления соединения с клиентами.
         self.listener = socket.socket()
@@ -393,16 +384,16 @@ class CubeGameServer(tk.Tk):
         # Ключи в словаре -- адреса игроков, значения -- сокеты.
         # Адрес -- кортеж из 2-х элементов ip и номера порта.
         self.conns_to_clients = {}
-        self.connect_to_clients_job = None
-        # Идентификаторы заданий `after()`
-        self.receive_from_client_jobs = {}
 
         self.players_scenarios = {}
 
-        self.connect_to_clients()
-
-        self.players_guidance_jobs = {}
-        self.launch_players_guidance()
+    def mainloop(self):
+        while True:
+            self.connect_to_clients()
+            self.guide_players()
+            self.receive_from_clients()
+            if DT_MS > 0:
+                time.sleep(DT_MS)
 
     @staticmethod
     def check_config(config):
@@ -414,7 +405,7 @@ class CubeGameServer(tk.Tk):
                 "Разрещенные порты: {} - {}.".format(
                     config['server_port'], MIN_PORT_NUMBER, MAX_PORT_NUMBER)
             )
-        if 0 <= config['num_cubes'] <= MAX_NUM_CUBES:
+        if not (0 <= config['num_cubes'] <= MAX_NUM_CUBES):
             raise ValueError(
                 "Количество кубиков в игре должно быть "
                 "в диапазоне от {} до {}, в то время как\n"
@@ -428,12 +419,13 @@ class CubeGameServer(tk.Tk):
                 conn, addr = self.listener.accept()
                 conn.settimeout(0)
                 self.conns_to_clients[addr] = conn
-                if addr not in self.receive_from_client_jobs:
-                    self.receive_from_client_jobs[addr] = self.after(
-                        0, self.receive_from_client, addr)
+                self.players_scenarios[addr] = PlayerScenario(self, addr)
             except BlockingIOError:
                 pass
-        self.connect_to_clients_job = self.after(DT, self.connect_to_clients)
+
+    def receive_from_clients(self):
+        for addr in self.conns_to_clients:
+            self.receive_from_client(addr)
 
     def receive_from_client(self, addr):
         try:
@@ -441,34 +433,26 @@ class CubeGameServer(tk.Tk):
             for msg in msgs:
                 if msg['type'] == 'error_msg':
                     warnings.warn(
-                        'Received error message from player {}\n'
-                        'Message:\n'.format(addr) +
+                        'Пришло сообщение об ошибке от игрока {}\n'
+                        'Сообщение:\n'.format(addr) +
                         msg['msg']
                     )
                 elif msg['type'] == 'event':
-                    if addr not in self.players_guidance_jobs:
-                        warning_msg = "Сообщение с описанием события пришло " \
-                            "до того, как сервер начал направлять игрока. " \
-                            "Это событие будет проигнорировано.\n" \
-                            "event = {}".format(msg['event'])
-                        warnings.warn(warning_msg)
-                        send_data(
-                            self.conns_to_clients[addr],
-                            {
-                                'type': 'error_msg',
-                                'error_class': 'ValueError',
-                                'addr': addr,
-                                'msg': warning_msg,
-                                'event': msg['event'],
-                            }
-                        )
-                    else:
-                        self.players_scenarios[addr].process_event(
-                            addr, msg['event'])
+                    self.players_scenarios[addr].process_event(
+                        addr, msg['event'])
                 else:
-                    warnings.warn(
-                        "Message of unknown type {} from client {}.".format(
-                            repr(msg['type']), repr(addr))
+                    warning_msg = "Сообщение неизвестного типа {} пришло "\
+                        "от игрока {}.".format(repr(msg['type']), repr(addr))
+                    warnings.warn(warning_msg)
+                    send_data(
+                        self.conns_to_clients[addr],
+                        {
+                            'type': 'error_msg',
+                            'error_class': 'ValueError',
+                            'addr': addr,
+                            'msg': warning_msg,
+                            'event': msg['event'],
+                        }
                     )
         except CorruptedMessageError as e:
             warnings.warn(e.message)
@@ -477,27 +461,12 @@ class CubeGameServer(tk.Tk):
         except ConnectionResetError:
             self.conns_to_clients[addr].close()
             del self.conns_to_clients[addr]
-            del self.receive_from_client_jobs[addr]
+            del self.players_scenarios[addr]
             return
-        self.receive_from_client_jobs[addr] = self.after(
-            DT, self.receive_from_client, addr)
 
-    def launch_players_guidance(self):
-        for addr in self.receive_from_client_jobs:
-            assert addr in self.conns_to_clients, "Если есть задание ожидать" \
-                "сообщений от игрока, с игроком должно быть установлено " \
-                "соединение."
-            if addr in self.players_guidance_jobs:
-                assert addr in self.players_scenarios, "Если сервер " \
-                    "направляет игрока, для этого игрока должен быть сценарий"
-            else:
-                self.players_scenarios[addr] = PlayerScenario(self, addr)
-                self.guide_player(addr)
-        self.after(DT, self.launch_players_guidance)
-
-    def guide_player(self, addr):
-        self.players_scenarios[addr].act()
-        self.after(DT, self.guide_player, addr)
+    def guide_players(self):
+        for addr in self.conns_to_clients:
+            self.players_scenarios[addr].act()
 
     def process_event(self, addr, event):
         self.main_frame.process_event(addr, event)
@@ -510,7 +479,8 @@ class CubeGameServer(tk.Tk):
                 "id": cube.id,
                 "x": cube.x,
                 "y": cube.y,
-                "size": cube.size
+                "size": cube.size,
+                "color": cube.color
             }
             send_data(self.conns_to_clients[addr], msg)
 
