@@ -479,6 +479,7 @@ class CubeGameServer:
             del self.players_scenarios[addr]
             return
         except ConnectionAbortedError as e:
+            warnings.warn(e)
             warnings.warn(CONNECTION_ABORTED_ERROR_WARNING)
 
     def guide_players(self):
