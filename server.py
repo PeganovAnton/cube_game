@@ -206,7 +206,7 @@ class CubeServer:
             return
         assert self.grabbing_point is None, \
             "Кубик по-прежнему кто-то удерживает. В программе ошибка, так " \
-            "как Проверка того, что кубик свободен должна выполняться в " \
+            "как проверка того, что кубик свободен должна выполняться в " \
             "методе `CubeCanvasServer.is_id_and_event_type_ok()`. Возможные " \
             "причины ошибки: неправильно обрабатываются " \
             "`self.grabbing_point` " \
@@ -322,8 +322,8 @@ class CubeCanvasServer:
             if addr not in self.grabbed_cubes_ids:
                 ok = False
                 warning_msg = "Адрес клиента, отправившего описание события " \
-                    "типа <ButtonRelease-1> или <B1-Motion>, должен быть в " \
-                    "словаре `self.grabbed_cubes_ids`."
+                    "типа <ButtonRelease-1> или <B1-Motion>, должен быть " \
+                    "ключом словаря `self.grabbed_cubes_ids`."
                 warnings.warn(warning_msg)
                 msg = dict(**oblig_part, msg=warning_msg)
                 send_data_quite(conn, addr, msg)
@@ -346,11 +346,12 @@ class CubeCanvasServer:
         if not self.is_id_address_eventtype_ok(addr, event):
             return
         if event['type'] == '<Button-1>':
-            if self.cubes[event['id']].grabbing_point is not None:
-                assert addr in self.grabbed_cubes_ids, "Если кубик схвачен" \
-                    "игроком, адрес этого игрока должен быть в " \
-                    "`self.grabbed_cubes_ids`. В серверной части программы " \
-                    "ошибка."
+            if self.cubes[event['id']].grabbing_point is None:
+                assert event['id'] not in \
+                    list(self.grabbed_cubes_ids.values()), \
+                    "Если кубик свободен, id этого кубика не должно быть " \
+                    "среди значений `self.grabbed_cubes_ids`. В серверной " \
+                    "части программы ошибка."
                 self.cubes[event['id']].process_button_1(addr, event)
                 self.grabbed_cubes_ids[addr] = event['id']
         elif event['type'] in ['<ButtonRelease-1>', '<B1-Motion>']:
