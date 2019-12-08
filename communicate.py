@@ -41,6 +41,10 @@ UNPICKLING_CORRUPTED_MSG_TMPL = (
     "Принятые данные сохранены в файл {dump_fn}'"
 )
 
+CONNECTION_ABORTED_ERROR_WARNING = "Возможная причина ошибки " \
+    "`ConnectionAbortedError` -- вмешательство антивируса. Однако чаще " \
+    "всего она возникает при обрыве соединения клиентом."
+
 
 class CorruptedMessageError(Exception):
     def __init__(self, msg, data, idx, length):
@@ -167,10 +171,7 @@ def send_data_quite(conn, addr, data):
         warn_no_msg_was_sent(data, addr)
     except ConnectionAbortedError as e:
         warnings.warn(e)
-        warnings.warn(
-            "Возможная причина ошибки `ConnectionAbortedError` -- "
-            "вмешательство антивируса."
-        )
+        warnings.warn(CONNECTION_ABORTED_ERROR_WARNING)
         warn_no_msg_was_sent(data, addr)
     except Exception as e:
         warnings.warn(e)

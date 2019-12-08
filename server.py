@@ -8,7 +8,8 @@ from random import randrange as rnd, choice
 import colors
 
 from communicate import send_data_quite, recv_data, CorruptedMessageError, \
-    MIN_PORT_NUMBER, MAX_PORT_NUMBER, DEFAULT_PORT_NUMBER
+    MIN_PORT_NUMBER, MAX_PORT_NUMBER, DEFAULT_PORT_NUMBER, \
+    CONNECTION_ABORTED_ERROR_WARNING
 
 
 DT_SECONDS = 0.001
@@ -477,6 +478,8 @@ class CubeGameServer:
             del self.conns_to_clients[addr]
             del self.players_scenarios[addr]
             return
+        except ConnectionAbortedError as e:
+            warnings.warn(CONNECTION_ABORTED_ERROR_WARNING)
 
     def guide_players(self):
         for addr in self.conns_to_clients:
