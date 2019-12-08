@@ -23,7 +23,9 @@ def get_app_args():
         "компьютерах каждого из игроков и передать при этом ip сервера. ip "
         "и порт сервера печатаются при запуске сервера. Если Вы играете на "
         "той же машине, на которой запущен сервер, то ip при запуске клиента "
-        "можно не указывать.".format(MAX_NUM_PLAYERS)
+        "можно не указывать. Программа может работать неправильно, если "
+        "соединение было потеряно, а затем восстановлено. В таком случае "
+        "необходимо перезапустить этот скрипт.".format(MAX_NUM_PLAYERS)
     )
     parser.add_argument(
         '--server_ip',
@@ -274,6 +276,7 @@ class CubeGameClient(tk.Tk):
     def __init__(self, config):
         self.check_config(config)
         super().__init__()
+        self.title('Cube Game')
 
         self.server_ip = config['server_ip']
         self.server_port = config['server_port']

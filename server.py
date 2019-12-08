@@ -8,7 +8,7 @@ from random import randrange as rnd, choice
 import colors
 
 from communicate import send_data_quite, recv_data, CorruptedMessageError, \
-    MIN_PORT_NUMBER, MAX_PORT_NUMBER, DEFAULT_PORT_NUMBER, \
+    get_ip_address, MIN_PORT_NUMBER, MAX_PORT_NUMBER, DEFAULT_PORT_NUMBER, \
     CONNECTION_ABORTED_ERROR_WARNING_TMPL, CONNECTION_RESET_ERROR_WARNING_TMPL
 
 
@@ -30,7 +30,9 @@ def get_app_args():
         "из игроков и передать при этом ip сервера. ip и порт сервера "
         "печатаются при запуске сервера. Если Вы играете на той же машине, "
         "на которой запущен сервер, то ip при запуске клиента можно не "
-        "указывать.".format(
+        "указывать. Программа может работать неправильно, если соединение "
+        "было потеряно, а затем восстановлено. В таком случае клиента "
+        "нужно перезапустить.".format(
             MAX_NUM_PLAYERS)
     )
     parser.add_argument(
@@ -152,7 +154,7 @@ class CubeServer:
         if not (self.x <= event['x'] <= self.x + self.size
                 and self.y <= event['y'] <= self.y + self.size):
             ok = False
-            warning_msg = "У Кубика с id {} разные координаты или размер " \
+            warning_msg = "У кубика с id {} разные координаты или размер " \
                 "в клиентской и серверной частях программы. В результате " \
                 "мышка не попадает по кубику из серверной части программы. " \
                 "Захват кубика не будет осуществлен.".format(self.id)
@@ -399,7 +401,7 @@ class CubeGameServer:
         self.listener.settimeout(0)
         self.listener.bind(('', self.server_port))
         self.listener.listen(MAX_NUM_PLAYERS)
-        print(socket.gethostbyname(socket.gethostname()), self.server_port)
+        print(get_ip_address(), self.server_port)
 
         # Словарь сокетов для обмена данными с клиентами.
         # Ключи в словаре -- адреса игроков, значения -- сокеты.
@@ -484,6 +486,9 @@ class CubeGameServer:
         except ConnectionResetError as e:
             warnings.warn(e)
             warnings.warn(CONNECTION_RESET_ERROR_WARNING_TMPL.format(addr))
+            # FIXME
+            # Непонятно когда возникает ошибка и потому не ясно следует ли
+            # закрывать и удалять socket.
             self.conns_to_clients[addr].close()
             del self.conns_to_clients[addr]
             del self.players_scenarios[addr]
@@ -491,16 +496,23 @@ class CubeGameServer:
         except ConnectionAbortedError as e:
             warnings.warn(e)
             warnings.warn(CONNECTION_ABORTED_ERROR_WARNING_TMPL.format(addr))
+            # FIXME
+            # Неустановлено, в каких случаях возникает эта ошибка.
+            # Она наблюдалась при выключении клиента, тогда закрытие и
+            # удаление сокета -- правильное рещение. Однако, я наблюдал эту же
+            # ошибку временном отключении wifi. В последнем случаем удаление
+            # сокета приводит к необходимости перезапуска клиентской части
+            # приложения.
             self.conns_to_clients[addr].close()
             del self.conns_to_clients[addr]
             del self.players_scenarios[addr]
             self.main_frame.cube_canvas.release_player_cube(addr)
-        # except Exception as e:
-        #     warnings.warn(e)
-        #     warnings.warn(
-        #         "Для исключения типа {} не был написан обработчик. Возможно, "
-        #         "стоит это сделать.".format(type(e))
-        #     )
+        except Exception as e:
+            warnings.warn(e)
+            warnings.warn(
+                "Для исключения типа {} не был написан обработчик. Возможно, "
+                "стоит это сделать.".format(type(e))
+            )
 
     def guide_players(self):
         for addr in self.conns_to_clients:

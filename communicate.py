@@ -1,6 +1,7 @@
 import datetime
 import os
 import pickle
+import socket
 import warnings
 
 
@@ -25,7 +26,10 @@ OUT_OF_BOUNDS_CORRUPTED_MSG_TMPL = (
     "протоколу. Длина сообщения, начинающегося с {start}-го байта " 
     "выходит за границу массива принятых данных. Это может быть связано с "
     "обрывом связи при передаче сообщения, распределенного по 2м или более "
-    "буферам. Процесс приема сообщений останавлен.\n"
+    "буферам, а также с ошибочным форматом сообщения. Принятые сообщения "
+    "не будут обработаны. Эта ошибка возникает в том числе, когда клиент "
+    "посылает сообщения при отсутствии соединения с сетью, а затем "
+    "соединение восстанавливается.\n"
     "len(data) = {data_length}\n"
     "отправитель: {addr}\n"
     "Длина закодированного сообщения: {length}\n"
@@ -41,7 +45,7 @@ UNPICKLING_CORRUPTED_MSG_TMPL = (
     "Принятые данные сохранены в файл {dump_fn}'"
 )
 
-CONNECTION_ABORTED_ERROR_WARNING_TMPL = "Произошел брыв соединения с " \
+CONNECTION_ABORTED_ERROR_WARNING_TMPL = "Произошел обрыв соединения с " \
     "корреспондентом {}. Возможная причина ошибки " \
     "`ConnectionAbortedError` -- вмешательство антивируса. Однако чаще " \
     "всего она возникает при обрыве соединения клиентом."
@@ -194,3 +198,12 @@ def warn_no_msg_was_sent(msg, addr):
         "Сообщение адресату {} не было отправлено.\n"
         "Сообщение:\n{}".format(addr, msg)
     )
+
+
+def get_ip_address():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    s.connect(('<broadcast>', 0))
+    ip = s.getsockname()[0]
+    s.close()
+    return ip
