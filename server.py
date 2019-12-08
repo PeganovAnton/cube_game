@@ -481,6 +481,12 @@ class CubeGameServer:
         except ConnectionAbortedError as e:
             warnings.warn(e)
             warnings.warn(CONNECTION_ABORTED_ERROR_WARNING)
+        except Exception as e:
+            warnings.warn(e)
+            warnings.warn(
+                "Для исключения типа {} не был написан обработчик. Возможно, "
+                "стоит это сделать.".format(type(e))
+            )
 
     def guide_players(self):
         for addr in self.conns_to_clients:
