@@ -477,10 +477,12 @@ class CubeGameServer:
             self.conns_to_clients[addr].close()
             del self.conns_to_clients[addr]
             del self.players_scenarios[addr]
-            return
         except ConnectionAbortedError as e:
             warnings.warn(e)
             warnings.warn(CONNECTION_ABORTED_ERROR_WARNING)
+            self.conns_to_clients[addr].close()
+            del self.conns_to_clients[addr]
+            del self.players_scenarios[addr]
         except Exception as e:
             warnings.warn(e)
             warnings.warn(
