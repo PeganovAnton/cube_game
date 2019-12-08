@@ -163,11 +163,25 @@ def send_data_quite(conn, addr, data):
     try:
         send_data(conn, data)
     except BrokenPipeError as e:
-        warn_no_msg_was_sent(data, addr, e)
+        warnings.warn(e)
+        warn_no_msg_was_sent(data, addr)
+    except ConnectionAbortedError as e:
+        warnings.warn(e)
+        warnings.warn(
+            "Возможная причина ошибки `ConnectionAbortedError` -- "
+            "вмешательство антивируса."
+        )
+        warn_no_msg_was_sent(data, addr)
+    except Exception as e:
+        warnings.warn(e)
+        warnings.warn(
+            "Для исключения типа {} не был написан обработчик. Возможно, "
+            "стоит это сделать.".format(type(e))
+        )
+        warn_no_msg_was_sent(data, addr)
 
 
-def warn_no_msg_was_sent(msg, addr, error_instance):
-    warnings.warn(error_instance)
+def warn_no_msg_was_sent(msg, addr):
     warnings.warn(
         "Сообщение адресату {} не было отправлено.\n"
         "Сообщение:\n{}".format(addr, msg)
