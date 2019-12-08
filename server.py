@@ -9,7 +9,7 @@ import colors
 
 from communicate import send_data_quite, recv_data, CorruptedMessageError, \
     MIN_PORT_NUMBER, MAX_PORT_NUMBER, DEFAULT_PORT_NUMBER, \
-    CONNECTION_ABORTED_ERROR_WARNING
+    CONNECTION_ABORTED_ERROR_WARNING_TMPL, CONNECTION_RESET_ERROR_WARNING_TMPL
 
 
 DT_SECONDS = 0.001
@@ -368,6 +368,12 @@ class CubeCanvasServer:
         else:
             assert False
 
+    def release_player_cube(self, addr):
+        if addr in self.grabbed_cubes_ids:
+            cube = self.cubes[self.grabbed_cubes_ids[addr]]
+            cube.grabbing_point = None
+            del self.grabbed_cubes_ids[addr]
+
 
 class MainFrameServer:
     def __init__(self, master, num_cubes):
@@ -439,7 +445,9 @@ class CubeGameServer:
                 pass
 
     def receive_from_clients(self):
-        for addr in self.conns_to_clients:
+        # Возможен обрыв соединения соединения и удаление элемента словаря.
+        # Менять ключи элемента словаря в процессе итерации по нему запрещено.
+        for addr in list(self.conns_to_clients):
             self.receive_from_client(addr)
 
     def receive_from_client(self, addr):
@@ -473,16 +481,20 @@ class CubeGameServer:
             warnings.warn(e.message)
         except BlockingIOError:
             pass
-        except ConnectionResetError:
+        except ConnectionResetError as e:
+            warnings.warn(e)
+            warnings.warn(CONNECTION_RESET_ERROR_WARNING_TMPL.format(addr))
             self.conns_to_clients[addr].close()
             del self.conns_to_clients[addr]
             del self.players_scenarios[addr]
+            self.main_frame.cube_canvas.release_player_cube(addr)
         except ConnectionAbortedError as e:
             warnings.warn(e)
-            warnings.warn(CONNECTION_ABORTED_ERROR_WARNING)
+            warnings.warn(CONNECTION_ABORTED_ERROR_WARNING_TMPL.format(addr))
             self.conns_to_clients[addr].close()
             del self.conns_to_clients[addr]
             del self.players_scenarios[addr]
+            self.main_frame.cube_canvas.release_player_cube(addr)
         except Exception as e:
             warnings.warn(e)
             warnings.warn(
