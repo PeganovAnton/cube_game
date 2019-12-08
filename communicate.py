@@ -1,6 +1,7 @@
 import datetime
 import os
 import pickle
+import warnings
 
 
 MIN_PORT_NUMBER = 1024
@@ -142,9 +143,32 @@ def parse_received(conn, data, addr):
 
 def recv_data(conn, addr):
     data = b''
+    error_instance = None
+    buffer = b''
     while True:
-        buffer = conn.recv(BUFFER_SIZE)
-        if not buffer:
+        try:
+            buffer = conn.recv(BUFFER_SIZE)
+        except Exception as e:
+            error_instance = e
+        if buffer is None or not buffer:
             break
         data += buffer
-    return parse_received(conn, data, addr)
+        buffer = b''
+        if error_instance is not None:
+            break
+    return parse_received(conn, data, addr), error_instance
+
+
+def send_data_quite(conn, addr, data):
+    try:
+        send_data(conn, data)
+    except BrokenPipeError as e:
+        warn_no_msg_was_sent(data, addr, e)
+
+
+def warn_no_msg_was_sent(msg, addr, error_instance):
+    warnings.warn(error_instance)
+    warnings.warn(
+        "Сообщение адресату {} не было отправлено.\n"
+        "Сообщение:\n{}".format(addr, msg)
+    )

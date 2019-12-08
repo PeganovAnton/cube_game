@@ -7,11 +7,11 @@ from random import randrange as rnd, choice
 
 import colors
 
-from communicate import send_data, recv_data, CorruptedMessageError, \
+from communicate import send_data_quite, recv_data, CorruptedMessageError, \
     MIN_PORT_NUMBER, MAX_PORT_NUMBER, DEFAULT_PORT_NUMBER
 
 
-DT_MS = 0.001
+DT_SECONDS = 0.001
 WINDOW_SHAPE = (800, 600)
 
 MAX_NUM_PLAYERS = 10
@@ -82,7 +82,7 @@ class PlayerScenario:
             }
         }
 
-        self.current_state = "awaiting_init"
+        self.current_state = "waiting_for_init"
 
     def act(self):
         act_description = self.player_states[self.current_state]['act']
@@ -97,7 +97,8 @@ class PlayerScenario:
 
     def process_event(self, addr, event):
         assert addr == self.player_addr
-        process_event_description = self.player_states[self.current_state]
+        process_event_description = \
+            self.player_states[self.current_state]['event']
         game_method = process_event_description['game_method']
         if game_method is None:
             result = None
@@ -108,7 +109,7 @@ class PlayerScenario:
             change_state_method(result)
 
     def change_state_to_grab_move(self, game_method_result):
-        self.current_state = game_method_result
+        self.current_state = 'grab_move'
 
 
 class CubeServer:
@@ -135,16 +136,14 @@ class CubeServer:
                 )
             warnings.warn(warning_msg)
             conn = self.cube_canvas.get_root().conns_to_clients[addr]
-            send_data(
-                conn,
-                {
-                    'type': 'error_msg',
-                    'error_class': 'ValueError',
-                    'addr': addr,
-                    'msg': warning_msg,
-                    'event': event
-                }
-            )
+            msg = {
+                'type': 'error_msg',
+                'error_class': 'ValueError',
+                'addr': addr,
+                'msg': warning_msg,
+                'event': event
+            }
+            send_data_quite(conn, addr, msg)
         return bool(missing_coords)
 
     def are_x_and_y_ok(self, addr, event):
@@ -152,34 +151,35 @@ class CubeServer:
         if not (self.x <= event['x'] <= self.x + self.size
                 and self.y <= event['y'] <= self.y + self.size):
             ok = False
-            warning_msg = "Кубик с id {} имеет разные координаты или размер " \
-                "на клиентской и серверной частях программы. В результате " \
-                "мышка на серверной части программы не попадает по кубику. " \
-                "Захват кубика не будет осуществлен."
+            warning_msg = "У Кубика с id {} разные координаты или размер " \
+                "в клиентской и серверной частях программы. В результате " \
+                "мышка не попадает по кубику из серверной части программы. " \
+                "Захват кубика не будет осуществлен.".format(self.id)
             warnings.warn(warning_msg)
             conn = self.cube_canvas.get_root().conns_to_clients[addr]
-            send_data(
-                conn,
-                {
-                    'type': 'error_msg',
-                    'error_class': 'ValueError',
-                    'addr': addr,
-                    'msg': warning_msg,
-                    'event': event,
-                    'cube_coords_on_server': (self.x, self.y),
-                    'cube_size_on_server': self.size
-                }
-            )
+            msg = {
+                'type': 'error_msg',
+                'error_class': 'ValueError',
+                'addr': addr,
+                'msg': warning_msg,
+                'event': event,
+                'cube_coords_on_server': (self.x, self.y),
+                'cube_size_on_server': self.size
+            }
+            send_data_quite(conn, addr, msg)
         return ok
 
     def move_by_grabbing_point(self, addr, x, y):
-        shift = (x - self.grabbing_point[0], y - self.grabbing_point[1])
-        conn = self.cube_canvas.get_root().conns_to_clients[addr]
-        self.x += shift[0]
-        self.y += shift[1]
-        send_data(
-            conn,
-            {
+        root = self.cube_canvas.get_root()
+        assert self.grabbing_point is not None, "Метод " \
+            "`CubeServer.move_by_grabbing_point` может вызываться, если " \
+            "`self.grabbing_point` не `None`. В программе ошибка."
+        self.x += x - self.grabbing_point[0]
+        self.y += y - self.grabbing_point[1]
+        self.grabbing_point = (x, y)
+        msg = {
+            'type': 'command',
+            'command': {
                 'type': 'coords',
                 'id': self.id,
                 'x1': self.x,
@@ -187,7 +187,8 @@ class CubeServer:
                 'y1': self.y,
                 'y2': self.y + self.size
             }
-        )
+        }
+        root.send_to_all_players(msg)
 
     def process_button_release_1(self, addr, event):
         if self.is_coord_missing(addr, event):
@@ -209,8 +210,8 @@ class CubeServer:
             "`CubeCanvasServer.is_id_and_event_type_ok()`. Возможные " \
             "причины ошибки: неправильно обрабатываются " \
             "`self.grabbing_point` " \
-            "или `CubeCanvasServer.grabbed_cubes`"
-        self.grabbing_point = (event['x']-self.x, event['y']-self.y)
+            "или `CubeCanvasServer.grabbed_cubes_ids`"
+        self.grabbing_point = (event['x'], event['y'])
 
 
 class CubeCanvasServer:
@@ -237,11 +238,11 @@ class CubeCanvasServer:
         self.cubes = {}
         self.create_cubes()
 
-        self.grabbed_cubes = {}
+        self.grabbed_cubes_ids = {}
 
     def get_root(self):
         root = self.master
-        while hasattr(root, 'master') is not None:
+        while hasattr(root, 'master'):
             root = root.master
         return root
 
@@ -281,22 +282,21 @@ class CubeCanvasServer:
                     "<B1-Motion>. В то время как у данного события тип " \
                     "{}".format(event['type'])
                 warnings.warn(warning_msg)
-                send_data(conn, dict(**oblig_part, msg=warning_msg))
-            if 'id' in event and addr in self.grabbed_cubes:
+                msg = dict(**oblig_part, msg=warning_msg)
+                send_data_quite(conn, addr, msg)
+            if 'id' in event and addr in self.grabbed_cubes_ids:
                 ok = False
                 warning_msg = "Игрок {} не может схватить кубик с id " \
                     "{}, пока не отпустит кубик с id {}.".format(
-                        addr, event['id'], self.grabbed_cubes[addr]
+                        addr, event['id'], self.grabbed_cubes_ids[addr]
                     )
                 warnings.warn(warning_msg)
-                send_data(
-                    conn,
-                    dict(
-                        **oblig_part,
-                        msg=warning_msg,
-                        grabbed_id=self.grabbed_cubes[addr]
-                    )
+                msg = dict(
+                    **oblig_part,
+                    msg=warning_msg,
+                    grabbed_id=self.grabbed_cubes_ids[addr]
                 )
+                send_data_quite(conn, addr, msg)
             if 'id' in event and event['id'] not in self.cubes:
                 ok = False
                 present_ids = list(self.cubes.keys())
@@ -304,7 +304,8 @@ class CubeCanvasServer:
                               "id в наличии: {}\n".format(event['id'],
                                                           present_ids)
                 warnings.warn(warning_msg)
-                send_data(conn, dict(**oblig_part, present_ids=warning_msg))
+                msg = dict(**oblig_part, msg=warning_msg)
+                send_data_quite(conn, addr, msg)
         elif event['type'] in ['<ButtonRelease-1>', '<B1-Motion>']:
             if 'id' in event:
                 ok = False
@@ -312,27 +313,28 @@ class CubeCanvasServer:
                     "описаниями событий типа <Button-1>. В то время как" \
                     "у данного события тип {}".format(event['type'])
                 warnings.warn(warning_msg)
-                send_data(conn, dict(**oblig_part, msg=warning_msg))
-            if addr not in self.grabbed_cubes:
+                msg = dict(**oblig_part, msg=warning_msg)
+                send_data_quite(conn, addr, msg)
+            if addr not in self.grabbed_cubes_ids:
                 ok = False
-                warning_msg = "Адрес клиента, оправившего описание события " \
+                warning_msg = "Адрес клиента, отправившего описание события " \
                     "типа <ButtonRelease-1> или <B1-Motion>, должен быть в " \
-                    "словаре `self.owned_cubes`."
+                    "словаре `self.grabbed_cubes_ids`."
                 warnings.warn(warning_msg)
-                send_data(conn, dict(**oblig_part, msg=warning_msg))
+                msg = dict(**oblig_part, msg=warning_msg)
+                send_data_quite(conn, addr, msg)
         else:
             ok = False
             warning_msg = "Только события типов {} поддерживаются в то " \
                 "время как было описание события типа {}".format(
                     self.supported_incoming_event_types, event['type'])
             warnings.warn(warning_msg)
-            send_data(
-                conn,
-                dict(
-                    **oblig_part,
-                    msg=warning_msg,
-                    supported_event_types=self.supported_incoming_event_types)
+            msg = dict(
+                **oblig_part,
+                msg=warning_msg,
+                supported_event_types=self.supported_incoming_event_types
             )
+            send_data_quite(conn, addr, msg)
         return ok
 
     def process_event(self, addr, event):
@@ -340,12 +342,14 @@ class CubeCanvasServer:
             return
         if event['type'] == '<Button-1>':
             self.cubes[event['id']].process_button_1(addr, event)
+            if self.cubes[event['id']].grabbing_point is not None:
+                self.grabbed_cubes_ids[addr] = event['id']
         elif event['type'] in ['<ButtonRelease-1>', '<B1-Motion>']:
             event = copy.deepcopy(event)
-            event['id'] = self.grabbed_cubes[addr]
+            event['id'] = self.grabbed_cubes_ids[addr]
             if event['type'] == '<ButtonRelease-1>':
                 self.cubes[event['id']].process_button_release_1(addr, event)
-                del self.grabbed_cubes[event['id']]
+                del self.grabbed_cubes_ids[addr]
             elif event['type'] == '<B1-Motion>':
                 self.cubes[event['id']].process_b1_motion(addr, event)
             else:
@@ -378,7 +382,7 @@ class CubeGameServer:
         self.listener.settimeout(0)
         self.listener.bind(('', self.server_port))
         self.listener.listen(MAX_NUM_PLAYERS)
-        print(socket.gethostname(), self.server_port)
+        print(socket.gethostbyname(socket.gethostname()), self.server_port)
 
         # Словарь сокетов для обмена данными с клиентами.
         # Ключи в словаре -- адреса игроков, значения -- сокеты.
@@ -392,8 +396,8 @@ class CubeGameServer:
             self.connect_to_clients()
             self.guide_players()
             self.receive_from_clients()
-            if DT_MS > 0:
-                time.sleep(DT_MS)
+            if DT_SECONDS > 0:
+                time.sleep(DT_SECONDS)
 
     @staticmethod
     def check_config(config):
@@ -429,7 +433,7 @@ class CubeGameServer:
 
     def receive_from_client(self, addr):
         try:
-            msgs = recv_data(self.conns_to_clients[addr], addr)
+            msgs, e = recv_data(self.conns_to_clients[addr], addr)
             for msg in msgs:
                 if msg['type'] == 'error_msg':
                     warnings.warn(
@@ -444,16 +448,16 @@ class CubeGameServer:
                     warning_msg = "Сообщение неизвестного типа {} пришло "\
                         "от игрока {}.".format(repr(msg['type']), repr(addr))
                     warnings.warn(warning_msg)
-                    send_data(
-                        self.conns_to_clients[addr],
-                        {
-                            'type': 'error_msg',
-                            'error_class': 'ValueError',
-                            'addr': addr,
-                            'msg': warning_msg,
-                            'event': msg['event'],
-                        }
-                    )
+                    msg = {
+                        'type': 'error_msg',
+                        'error_class': 'ValueError',
+                        'addr': addr,
+                        'msg': warning_msg,
+                        'event': msg['event'],
+                    }
+                    send_data_quite(self.conns_to_clients[addr], addr, msg)
+            if e is not None:
+                raise e
         except CorruptedMessageError as e:
             warnings.warn(e.message)
         except BlockingIOError:
@@ -473,22 +477,58 @@ class CubeGameServer:
 
     def init_player(self, addr):
         cubes = self.main_frame.cube_canvas.cubes
-        for cube in cubes:
+        for cube in cubes.values():
             msg = {
-                "type": 'add_cube',
-                "id": cube.id,
-                "x": cube.x,
-                "y": cube.y,
-                "size": cube.size,
-                "color": cube.color
+                'type': 'command',
+                'command': {
+                    "type": 'add_cube',
+                    "id": cube.id,
+                    "x": cube.x,
+                    "y": cube.y,
+                    "size": cube.size,
+                    "color": cube.color
+                }
             }
-            send_data(self.conns_to_clients[addr], msg)
+            send_data_quite(self.conns_to_clients[addr], addr, msg)
+        msg = {
+            'type': 'command',
+            'command': {
+                "type": 'bind_all'
+            }
+        }
+        send_data_quite(self.conns_to_clients[addr], addr, msg)
+
+    def warn_events_before_init(self, addr, event):
+        warning_msg = "На сервер от игрока {} пришло сообщение до " \
+            "инициализации этого игрока.\nevent = {}".format(repr(addr), event)
+        warnings.warn(warning_msg)
+        msg = {
+            'type': 'error_msg',
+            'error_class': 'ValueError',
+            'addr': addr,
+            'msg': warning_msg,
+            'event': event,
+        }
+        send_data_quite(self.conns_to_clients[addr], addr, msg)
+
+    def close_all_sockets(self):
+        self.listener.close()
+        for conn in self.conns_to_clients.values():
+            conn.close()
+
+    def send_to_all_players(self, msg):
+        for addr, conn in self.conns_to_clients.items():
+            send_data_quite(conn, addr, msg)
 
 
 def main():
-    args = get_app_args()
-    app = CubeGameServer(vars(args))
-    app.mainloop()
+    try:
+        args = get_app_args()
+        app = CubeGameServer(vars(args))
+        app.mainloop()
+    except KeyboardInterrupt as e:
+        app.close_all_sockets()
+        raise e
 
 
 if __name__ == '__main__':
