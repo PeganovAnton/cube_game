@@ -495,12 +495,12 @@ class CubeGameServer:
             del self.conns_to_clients[addr]
             del self.players_scenarios[addr]
             self.main_frame.cube_canvas.release_player_cube(addr)
-        except Exception as e:
-            warnings.warn(e)
-            warnings.warn(
-                "Для исключения типа {} не был написан обработчик. Возможно, "
-                "стоит это сделать.".format(type(e))
-            )
+        # except Exception as e:
+        #     warnings.warn(e)
+        #     warnings.warn(
+        #         "Для исключения типа {} не был написан обработчик. Возможно, "
+        #         "стоит это сделать.".format(type(e))
+        #     )
 
     def guide_players(self):
         for addr in self.conns_to_clients:

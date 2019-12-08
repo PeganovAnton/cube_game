@@ -15,7 +15,7 @@ MSG_BYTEORDER = 'big'
 
 LOGDIR = 'logs'
 CORRUPTED_MESSAGES_DIR = os.path.join(LOGDIR, 'corrupted_messages')
-CORRUPTED_MSG_FILE_TMPL = "{ip}:{port}_{dt}.bin"
+CORRUPTED_MSG_FILE_TMPL = "{ip}_port{port}_{dt}.bin"
 # Максимальное разрешенное число дампов поврежденных сообщений, принятых от
 # одного игрока в одно время. Подобные ситуации при правильной работе
 # программы не должны возникать.
@@ -60,7 +60,10 @@ class CorruptedMessageError(Exception):
 
 def get_dump_fn_for_corrupted_data(addr):
     fn = CORRUPTED_MSG_FILE_TMPL.format(
-        ip=addr[0], port=addr[1], dt=datetime.datetime.now())
+        ip=addr[0],
+	port=addr[1],
+	dt=datetime.datetime.now().strftime("%Y-%m-%d_%H;%M;%S.%f")
+    )
     path = os.path.join(CORRUPTED_MESSAGES_DIR, fn)
     if os.path.exists(path):
         i = 1
