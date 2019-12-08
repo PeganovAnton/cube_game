@@ -205,9 +205,9 @@ class CubeServer:
         if not self.are_x_and_y_ok(addr, event):
             return
         assert self.grabbing_point is None, \
-            "Кубик по-прежнему кто-то удерживает. " \
-            "Проверка того, что кубик свободен должна выполняться в методе " \
-            "`CubeCanvasServer.is_id_and_event_type_ok()`. Возможные " \
+            "Кубик по-прежнему кто-то удерживает. В программе ошибка, так " \
+            "как Проверка того, что кубик свободен должна выполняться в " \
+            "методе `CubeCanvasServer.is_id_and_event_type_ok()`. Возможные " \
             "причины ошибки: неправильно обрабатываются " \
             "`self.grabbing_point` " \
             "или `CubeCanvasServer.grabbed_cubes_ids`"
@@ -287,7 +287,9 @@ class CubeCanvasServer:
             if 'id' in event and addr in self.grabbed_cubes_ids:
                 ok = False
                 warning_msg = "Игрок {} не может схватить кубик с id " \
-                    "{}, пока не отпустит кубик с id {}.".format(
+                    "{}, пока не отпустит кубик с id {}. Вероятно, или в " \
+                    "или в серверной части программы ошибка. Такие ситуации " \
+                    "не должны возникать".format(
                         addr, event['id'], self.grabbed_cubes_ids[addr]
                     )
                 warnings.warn(warning_msg)
@@ -300,9 +302,9 @@ class CubeCanvasServer:
             if 'id' in event and event['id'] not in self.cubes:
                 ok = False
                 present_ids = list(self.cubes.keys())
-                warning_msg = "В canvas нет элемента с id {}\n" \
-                              "id в наличии: {}\n".format(event['id'],
-                                                          present_ids)
+                warning_msg = "В canvas нет элемента с id {}. Или в " \
+                    "клиентской, или в серверной части программы ошибка. \n" \
+                    "id в наличии: {}\n".format(event['id'], present_ids)
                 warnings.warn(warning_msg)
                 msg = dict(**oblig_part, msg=warning_msg)
                 send_data_quite(conn, addr, msg)
@@ -311,7 +313,9 @@ class CubeCanvasServer:
                 ok = False
                 warning_msg = "Ключ id может быть только в словарях с " \
                     "описаниями событий типа <Button-1>. В то время как" \
-                    "у данного события тип {}".format(event['type'])
+                    "у данного события тип {}. Вероятно, в клиентской " \
+                    "части программы неправильно реализовано составление " \
+                    "сообщений данного типа".format(event['type'])
                 warnings.warn(warning_msg)
                 msg = dict(**oblig_part, msg=warning_msg)
                 send_data_quite(conn, addr, msg)
@@ -325,8 +329,9 @@ class CubeCanvasServer:
                 send_data_quite(conn, addr, msg)
         else:
             ok = False
-            warning_msg = "Только события типов {} поддерживаются в то " \
-                "время как было описание события типа {}".format(
+            warning_msg = "Только события типов {} поддерживаются, в то " \
+                "время как было принято описание события типа {}. Вероятно, " \
+                "в клиентской части программы допущена ошибка.".format(
                     self.supported_incoming_event_types, event['type'])
             warnings.warn(warning_msg)
             msg = dict(
@@ -341,8 +346,12 @@ class CubeCanvasServer:
         if not self.is_id_address_eventtype_ok(addr, event):
             return
         if event['type'] == '<Button-1>':
-            self.cubes[event['id']].process_button_1(addr, event)
             if self.cubes[event['id']].grabbing_point is not None:
+                assert addr in self.grabbed_cubes_ids, "Если кубик схвачен" \
+                    "игроком, адрес этого игрока должен быть в " \
+                    "`self.grabbed_cubes_ids`. В серверной части программы " \
+                    "ошибка."
+                self.cubes[event['id']].process_button_1(addr, event)
                 self.grabbed_cubes_ids[addr] = event['id']
         elif event['type'] in ['<ButtonRelease-1>', '<B1-Motion>']:
             event = copy.deepcopy(event)
