@@ -61,8 +61,8 @@ class CorruptedMessageError(Exception):
 def get_dump_fn_for_corrupted_data(addr):
     fn = CORRUPTED_MSG_FILE_TMPL.format(
         ip=addr[0],
-	port=addr[1],
-	dt=datetime.datetime.now().strftime("%Y-%m-%d_%H;%M;%S.%f")
+        port=addr[1],
+        dt=datetime.datetime.now().strftime("%Y-%m-%d_%H;%M;%S.%f")
     )
     path = os.path.join(CORRUPTED_MESSAGES_DIR, fn)
     if os.path.exists(path):
@@ -148,7 +148,7 @@ def parse_received(conn, data, addr):
                 'length': length
             }
         )
-        raise CorruptedMessageError(msg, data, i, length)
+        raise CorruptedMessageError(error_msg, data, i, length)
     return msgs
 
 
